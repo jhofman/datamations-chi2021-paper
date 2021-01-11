@@ -1,0 +1,382 @@
+---
+title: "Datamations analysis for CHI 2021"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  html_document:
+    code_folding: hide
+    fig_height: 5
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 4
+---
+
+
+```{r setup, include = F}
+library(tidyverse)
+library(lubridate)
+library(knitr)
+library(scales)
+library(broom)
+library(pwr)
+
+# set style
+theme_set(theme_bw())
+
+# set figure directory
+figure_dir <- "figures"
+
+
+cap_first_letter <- function(x) {
+  substr(x, 1, 1) <- toupper(substr(x, 1, 1))
+  x
+}
+
+```
+
+# Load and clean data
+
+```{r load-data}
+# read in clean data as produced by the (private) mturk_prod.Rmd script
+df <- read_tsv("clean_data.tsv")
+
+# parse all timestamps
+# compute time spent between survey intro page and submitted timestamp
+# (note: name of "ts_is_same_dataset_start" might be a bit misleading,
+# this was right after participants clicked continue on the consent form)
+df <- df %>%
+  #mutate(across(starts_with('ts_'), as.POSIXct)) %>%
+  mutate(time_spent = difftime(as.POSIXct(ts_submitted_),
+                               as.POSIXct(ts_is_same_dataset_start),
+                               units = "min"))
+
+# convert to pretty labels for conditions
+df <- df %>%
+  mutate(study = recode_factor(study, sanddance = "plot", tibble = "table"),
+         condition = recode_factor(condition, static = "Saw only\nfinal X", 
+                                   stepthru = "Saw X-based\ndatamation"),
+         condition = cap_first_letter(str_replace_all(condition, 'X',as.character(study))),
+         study = sprintf('%s-based condition', str_to_title(study)))
+
+PLOT_STUDY <- "Plot-based condition"
+TABLE_STUDY <- "Table-based condition"
+```
+
+There were `r nrow(df)` people who completed the experiment. All participants were required to have an approval rating of 99% or higher and to have completed at least 100 approved HITs prior to participating in this experiment.
+
+# Sanity checks
+
+## Randomization check
+
+Randomization between static visualizations and datamations looks to be roughly balanced within each study.
+
+```{r check-random-assignment}
+counts <- df %>%
+  count(study, condition)
+
+kable(counts)
+
+counts %>%
+  group_by(study) %>%
+  do(tidy(chisq.test(.$n))) %>%
+  kable()
+```
+
+## Time spent on the experiment
+
+We told participants that the experiment would take about 5-10 minutes and paid them $1.50 for completing it. The median time to complete the experiment across all participants was `r median(df$time_spent)` minutes.
+
+```{r time-spent}
+ggplot(df, aes(x = time_spent)) +
+  geom_histogram() +
+  facet_wrap(~ study, scale = "free_y") +
+  labs(x = "Time spent in minutes",
+       y = "Number of participants")
+
+df %>%
+  group_by(study) %>%
+  summarize(median(time_spent)) %>%
+  kable()
+```
+
+# Exclusions
+
+Remove any participants who finished this experiment too quickly. As per our pre-registration, too quickly means anyone who is assigned to the static condition and completes the experiment in less than 45 seconds or anyone who is assigned to the stepthru datamation and completes the experiment in less than 90 seconds, which we based on pilot study completion times. 
+
+```{r exclusions}
+nrow(df)
+
+df <- df %>%
+  filter((grepl('final', condition, ignore.case = T) & time_spent > 45/60) |
+         (grepl('datamation$', condition) & time_spent > 90/60))
+
+nrow(df)
+
+df %>%
+  count(study, condition)
+
+```
+
+We are left with `r nrow(df)` participants after exclusions.
+
+# Primary hypotheses
+
+## (Im)possibility that results are from the same dataset
+
+### Plots
+
+```{r plot-is-impossible}
+
+plot_data <- df %>%
+  group_by(study, condition) %>%
+  summarize(n_total = n(),
+            n_correct = sum(is_impossible_choice == "possible"),
+            p = n_correct / n_total,
+            se = sqrt(p * (1 - p) / n()))
+
+ggplot(plot_data, aes(x = condition, y = p)) +
+  geom_pointrange(aes(ymin = p - se, ymax = p + se)) +
+  facet_wrap(~ study, scale = "free_x") +
+  scale_y_continuous(label = percent, lim = c(0.35,0.75)) +
+  labs(x = '',
+       y = 'Percent who correctly answered\n"seems possible that these are the same data"')
+  ggsave(filename = sprintf('%s/frac_correct_is_impossible_both_studies.pdf', figure_dir), width = 8, height = 4)
+
+plot_data %>%
+  filter(study == PLOT_STUDY) %>% 
+  ggplot(aes(x = condition, y = p, color = condition)) +
+  geom_pointrange(aes(ymin = p - se, ymax = p + se), size = 1) +
+  #facet_wrap(~ study, scale = "free_x") +
+  scale_y_continuous(label = percent, lim = c(0.35,0.75)) +
+  scale_color_discrete(guide = F) +
+  labs(x = '',
+       y = 'Percent who correctly answered\n"seems possible that these are the same data"')
+ggsave(filename = sprintf('%s/frac_correct_is_impossible_plot_study.pdf', figure_dir), width = 4, height = 4)
+
+plot_data %>%
+  filter(study == TABLE_STUDY) %>% 
+  ggplot(aes(x = condition, y = p, color = condition)) +
+  geom_pointrange(aes(ymin = p - se, ymax = p + se), size = 1) +
+  #facet_wrap(~ study, scale = "free_x") +
+  scale_y_continuous(label = percent, lim = c(0.35,0.75)) +
+  scale_color_discrete(guide = F) +
+  labs(x = '',
+       y = 'Percent who correctly answered\n"seems possible that these are the same data"')
+ggsave(filename = sprintf('%s/frac_correct_is_impossible_table_study.pdf', figure_dir), width = 4, height = 4)
+
+```
+
+### Significance tests
+
+```{r sig-test-is-impossible}
+plot_data %>% 
+  group_by(study) %>%
+  do(tidy(prop.test(.$n_correct, .$n_total, alternative = "less", conf.level = 0.95))) %>%
+  kable()
+
+test_data_plot <- plot_data %>% filter(study == PLOT_STUDY)
+test_results_plot <- prop.test(test_data_plot$n_correct, test_data_plot$n_total, alternative = "less", conf.level = 0.95)
+
+test_data_table <- plot_data %>% filter(study == TABLE_STUDY)
+test_results_table <- prop.test(test_data_table$n_correct, test_data_table$n_total, alternative = "less", conf.level = 0.95)
+```
+
+Test results for plot-based condition:
+
+$$\chi^2(1, N = `r sum(test_data_plot$n_total)`) = `r test_results_plot$statistic`, p = `r test_results_plot$p.value`$$
+$$z(`r sum(test_data_plot$n_total)`) = `r sqrt(test_results_plot$statistic)`, p = `r test_results_plot$p.value`$$
+
+Test results for table-based condition:
+
+$$\chi^2(1, N = `r sum(test_data_table$n_total)`) = `r test_results_table$statistic`, p = `r test_results_table$p.value`$$
+$$z(`r sum(test_data_table$n_total)`) = `r sqrt(test_results_table$statistic)`, p = `r test_results_table$p.value`$$
+
+### Effect size
+
+```{r effect-size-is-impossible}
+plot_data %>%
+  group_by(study) %>%
+  do(data.frame(cohens_h = ES.h(.$p[2], .$p[1]))) %>%
+  kable()
+```
+
+## Explanation resolving the apparent paradox
+
+### Plots
+
+```{r plot-explanation-of-paradox}
+
+plot_data <- df %>%
+  group_by(study, condition) %>%
+  summarize(n_total = n(),
+            n_correct = sum(explanation_text == "more-masters-in-industry"),
+            p = n_correct / n_total,
+            se = sqrt(p * (1 - p) / n()))
+
+ggplot(plot_data, aes(x = condition, y = p)) +
+  geom_pointrange(aes(ymin = p - se, ymax = p + se)) +
+  facet_wrap(~ study, scale = "free_x") +
+  scale_y_continuous(label = percent, lim = c(0.35,0.75)) +
+  labs(x = '',
+       y = 'Percent who correctly answered\n"most masters work in industry, driving up average"')
+ggsave(filename = sprintf('%s/frac_correct_explanation_of_paradox_both_studies.pdf', figure_dir), width = 8, height = 4)
+
+plot_data %>%
+  filter(study == PLOT_STUDY) %>%
+  ggplot(aes(x = condition, y = p, color = condition)) +
+  geom_pointrange(aes(ymin = p - se, ymax = p + se), size = 1) +
+  #facet_wrap(~ study, scale = "free_x") +
+  scale_y_continuous(label = percent, lim = c(0.35,0.75)) +
+  scale_color_discrete(guide = F) +
+  labs(x = '',
+       y = 'Percent who correctly answered\n"most masters work in industry, driving up average"')
+ggsave(filename = sprintf('%s/frac_correct_explanation_of_paradox_plot_study.pdf', figure_dir), width = 4, height = 4)
+
+plot_data %>%
+  filter(study == TABLE_STUDY) %>%
+  ggplot(aes(x = condition, y = p, color = condition)) +
+  geom_pointrange(aes(ymin = p - se, ymax = p + se), size = 1) +
+  #facet_wrap(~ study, scale = "free_x") +
+  scale_y_continuous(label = percent, lim = c(0.35,0.75)) +
+  scale_color_discrete(guide = F) +
+  labs(x = '',
+       y = 'Percent who correctly answered\n"most masters work in industry, driving up average"')
+ggsave(filename = sprintf('%s/frac_correct_explanation_of_paradox_table_study.pdf', figure_dir), width = 4, height = 4)
+
+```
+
+```{r plot-explanation-of-paradox-all-choices}
+
+plot_data_all_choices <- df %>%
+  mutate(pretty_explanation_text = recode_factor(explanation_text,
+                                          "left-more-than-right" = "More people in the left figure",
+                                          "left-not-stat-sig" = "Differences are not statistically significant",
+                                          "many-industry-on-right" = "Many kinds of industry jobs",
+                                          "more-masters-in-industry" = "Many masters in industry drive up average",
+                                          "mystery-work-on-left" = "Includes unrepresentative job types",
+                                          "non-grads-on-right" = "Includes people with other degrees",
+                                          "none-of-the-above" = "None of the above",
+                                          "outliers-drive-up-masters" = "Outliers drive up average on left")) %>%
+  group_by(study, condition) %>%
+  count(explanation_text, pretty_explanation_text) %>%
+  mutate(p = n / sum(n),
+         se = sqrt(p * (1-p) / n))
+
+plot_data_all_choices %>%
+  filter(study == PLOT_STUDY) %>%
+  mutate(pretty_explanation_text = reorder(pretty_explanation_text, p)) %>%
+  ggplot(aes(x = pretty_explanation_text, y = p, color = condition)) +
+  geom_pointrange(aes(ymin = p - se, ymax = p + se, alpha = explanation_text == "more-masters-in-industry"), position = position_dodge(width = 0.4), size = 1) +
+  scale_y_continuous(label = percent, lim = c(-0.05, 0.75)) +
+  scale_alpha_manual(values = c(0.25, 1.0), guide = F) +
+  labs(x = 'Explanation for apparent paradox',
+       y = 'Percent of responses') +
+  coord_flip() +
+  theme(legend.title = element_blank(),
+        legend.position = "bottom")
+ggsave(filename = sprintf('%s/explanation_of_paradox_plot_study.pdf', figure_dir), width = 6, height = 4)
+
+
+plot_data_all_choices %>%
+  filter(study == TABLE_STUDY) %>%
+  mutate(pretty_explanation_text = reorder(pretty_explanation_text, p)) %>%
+  ggplot(aes(x = pretty_explanation_text, y = p, color = condition)) +
+  geom_pointrange(aes(ymin = p - se, ymax = p + se, alpha = explanation_text == "more-masters-in-industry"), position = position_dodge(width = 0.4), size = 1) +
+  scale_y_continuous(label = percent, lim = c(-0.05, 0.75)) +
+  scale_alpha_manual(values = c(0.25, 1.0), guide = F) +
+  labs(x = 'Explanation for apparent paradox',
+       y = 'Percent of responses') +
+  coord_flip() +
+  theme(legend.title = element_blank(),
+        legend.position = "bottom")
+ggsave(filename = sprintf('%s/explanation_of_paradox_table_study.pdf', figure_dir), width = 6, height = 4)
+
+```
+
+### Significance tests
+
+```{r sig-test-explanation-of-paradox}
+
+plot_data %>% 
+  group_by(study) %>%
+  do(tidy(prop.test(.$n_correct, .$n_total, alternative = "less", conf.level = 0.95))) %>%
+  kable()
+
+test_data_plot <- plot_data %>% filter(study == PLOT_STUDY)
+test_results_plot <- prop.test(test_data_plot$n_correct, test_data_plot$n_total, alternative = "less", conf.level = 0.95)
+
+test_data_table <- plot_data %>% filter(study == TABLE_STUDY)
+test_results_table <- prop.test(test_data_table$n_correct, test_data_table$n_total, alternative = "less", conf.level = 0.95)
+```
+
+Test results for plot-based condition:
+
+$$\chi^2(1, N = `r sum(test_data_plot$n_total)`) = `r test_results_plot$statistic`, p = `r test_results_plot$p.value`$$
+$$z(`r sum(test_data_plot$n_total)`) = `r sqrt(test_results_plot$statistic)`, p = `r test_results_plot$p.value`$$
+
+Test results for table-based condition:
+
+$$\chi^2(1, N = `r sum(test_data_table$n_total)`) = `r test_results_table$statistic`, p = `r test_results_table$p.value`$$
+$$z(`r sum(test_data_table$n_total)`) = `r sqrt(test_results_table$statistic)`, p = `r test_results_table$p.value`$$
+
+### Effect size
+
+```{r effect-size-explanation-of-paradox}
+plot_data %>%
+  group_by(study) %>%
+  do(data.frame(cohens_h = ES.h(.$p[2], .$p[1]))) %>%
+  kable()
+```
+
+# Other analyses
+
+## Preference for datamations in the future
+
+# Plots
+
+```{r future-choice}
+
+plot_data <- df %>%
+  filter(!is.na(future_opt)) %>%
+  mutate(study = fct_rev(gsub('condition', '\ndatamations', study))) %>%
+  group_by(study) %>%
+  count(future_opt) %>%
+  mutate(frac = n / sum(n))
+
+ggplot(plot_data, aes(x = study, y = frac)) +
+  #geom_pointrange(aes(ymin = p - se, ymax = p + se)) +
+  #facet_wrap(~ study, scale = "free_x") +
+  geom_bar(aes(color = future_opt, fill = future_opt), stat = "identity", width = 0.5) +
+  scale_y_continuous(label = percent, lim = c(0,1)) +
+  labs(x = '',
+       y = 'Percent who prefer datamations over only final figures') +
+  theme(legend.position = "none",
+        #panel.grid.major = element_blank(),
+        #panel.grid.minor = element_blank(),
+        #panel.border = element_blank(),
+        #axis.ticks = element_blank(),
+        #axis.title.x=element_blank(),
+        #axis.text.x=element_blank(),
+        #axis.ticks.x=element_blank()
+        ) +
+  scale_color_manual(values = c('#d53e4f', '#66bd63')) +
+  scale_fill_manual(values = c('#d53e4f', '#66bd63')) +
+  coord_flip() +
+  geom_text(data = filter(plot_data, future_opt == "static_ani"),
+            aes(x = study, y = frac, label = sprintf('%0.f%%', frac*100)),
+            hjust = -0.1, size = 3)
+  
+ggsave(filename = sprintf('%s/frac_prefer_datamations_in_future.pdf', figure_dir), width = 6, height = 2)
+
+```
+
+# R Session information with package versions
+
+```{r session-info}
+
+sessionInfo()
+
+```

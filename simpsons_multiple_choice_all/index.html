@@ -1,0 +1,159 @@
+<html>
+
+<head>
+  <style>
+    .lds-dual-ring {
+      display: inline-block;
+      width: 80px;
+      height: 80px;
+    }
+
+    .lds-dual-ring:after {
+      content: " ";
+      display: block;
+      width: 32px;
+      height: 32px;
+      margin: 8px;
+      border-radius: 50%;
+      border: 6px solid #009;
+      border-color: #009 transparent #009 transparent;
+      animation: lds-dual-ring 1.2s linear infinite;
+    }
+
+    @keyframes lds-dual-ring {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+
+  <script type="text/javascript" src="jquery-3.2.1.min.js"></script>
+  <script type="text/javascript" src="purl.js"></script>
+
+  <script type="text/javascript">
+
+    function random_survey() {
+      var surveys = [
+        "https://jhofman.github.io/datamations-chi2021-paper/simpsons_multiple_choice_sanddance/",
+        "https://jhofman.github.io/datamations-chi2021-paper/simpsons_multiple_choice_tibble/"
+      ];
+
+      return surveys[Math.floor(Math.random() * surveys.length)];
+    }
+
+    function check_fresh(prev_hit_ids, worker_id) {
+      prev_hit_id_str = "('" + prev_hit_ids.join("','") + "')";
+
+      $.ajax({
+        url: "https://mturk-function-app-node.azurewebsites.net/api/mturk-check-fresh",
+        //contentType: "application/json",
+        type: "POST",
+        //datatype: "json",
+        data: JSON.stringify({
+          hitIds: prev_hit_id_str,
+          workerId: worker_id
+        }),
+        success: function (data) {
+          data = $.parseJSON(data);
+          console.log(data);
+          if (data.length > 0) {
+            $('#checking').hide(function () {
+              $('#ineligible').show();
+            });
+          } else {
+            var param_str = $.param({
+              assignmentId: assignment_id,
+              workerId: worker_id,
+              hitId: hit_id,
+              turkSubmitTo: submit_to
+            });
+
+            var survey = random_survey() + '?' + param_str;
+            console.log(survey);
+
+            setTimeout(function () {
+              console.log('redirecting');
+            }, 1000);
+
+            window.location.href = survey;
+          }
+        },
+        error: function (request, error) {
+          console.log("Error. Request: " + JSON.stringify(request))
+          console.log(error);
+          $('#checking').hide(function () {
+            $('#ineligible').show();
+          });
+        }
+      });
+
+    }
+
+    var assignment_id, worker_id, hit_id, submit_to;
+
+    $(document).ready(function () {
+      /* test the randomization */
+      /*
+      var counts = {};
+      for (i = 0; i < 1000; i++) {
+        var s = random_survey();
+        if (!(s in counts))
+          counts[s] = 0;
+        counts[s]++;
+      }
+      console.log(counts);
+      */
+
+      // parse url parameters
+      assignment_id = $.url().param('assignmentId');
+      worker_id = $.url().param('workerId');
+      hit_id = $.url().param('hitId');
+      submit_to = $.url().param('turkSubmitTo');
+
+      if (assignment_id == 'ASSIGNMENT_ID_NOT_AVAILABLE') {
+        $('#preview').show();
+      } else {
+        prev_hit_ids = ["3V8JSVE8YYVV4Z4FSDW0F2SK4Z8EYK","3JYPJ2TAYIDT1ZCAW1KNKTK8CTNPFI", "3JVP4ZJHDPXAN9AGGOEJPSB2YQT0IY", "3GS542CVJVSG7F3E90BHCRTGI4R592", "3HXK2V1N4KK3NS7Z5NFT61CR27B2G5", "39KV3A5D18CDZYDW6ZQ5R6C21YR7SA", "324N5FAHSXGHM51KJOKJ6Y1V6MKVK8", "3QE4DGPGBRGDQ6MM91YHZG9PML7G4F", "3JTPR5MTZSH0OBM5DX57J3M56VC5K1", "371DNNCG447IECVU54Q2WEJSRZ48TE", "3J94SKDEKIUSA5GVLGGJYNC69TRD5K", "3FULMHZ7OU2DIGI8K4ZDTO8VV8M4MI", "3ECKRY5B1Q17PUG6KIOAEOZE24YIZ3", "3XBXDSS888OKA0OX43X29JBVB8ULXN", "373L46LKP7B8VA1Q2Z91KD5AOBRJKF", "3JAOYN9IHL7REYRUE8PFNK7JFRR33G", "3M47JKRKCX6CCEKI9RI9L4RE56D86F", "3PA41K45VN9GM6X4EIPCD4M0RZK7P2", "3Z33IC0JC0RX59ITFRWVXS2O6XF9V9", "3ZVPAMTJWN8KRCOKKDUU79KZD7LRGI"];
+
+        $('#checking').show();
+        check_fresh(prev_hit_ids, worker_id);
+
+      }
+
+    });
+
+  </script>
+</head>
+
+<body>
+  <!-- TODO -->
+  <div id="preview" style="display:none; text-align: center">
+    We are researchers interested in helping people understand data. If you answer all of the questions, you will earn
+    $1.50. This will take about 5-10 minutes.
+    <br />
+    <br />
+    <b>You may only participate in this experiment once.
+      <span style="color: red">If you have seen this survey before or one like it, please return the HIT.</span>
+    </b>
+    <br />
+    <br /> Otherwise you must accept this HIT to continue.
+  </div>
+
+  <div id="checking" style="display: none; text-align: center">
+    <p>Just a moment while we check if you are eligible for this HIT ...</p>
+    <div class="lds-dual-ring"></div>
+  </div>
+
+  <div id="ineligible" style="display:none; text-align: center">
+    <b>
+      <span style="color: red">Sorry, it looks like you have seen this survey before or one like it and are not eligible
+        for the HIT. Please return the HIT.</span>
+    </b>
+  </div>
+</body>
+
+</html>

@@ -1,0 +1,29 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+# Datamations at CHI 2021
+
+## How to run `datamations_chi2021.Rmd`
+
+1. Make sure that `datamations_chi2021.Rmd` is in the current working directory. 
+Use `setwd()` or `setwd(dirname(file.choose()))`.
+2. Finally run `rmarkdown::render("datamations_chi2021.Rmd")`.
+
+The following packages are required:
+
+```{r, echo=FALSE}
+library(tibble)
+library(purrr)
+library(knitr)
+
+pkgs <- c("tidyverse", "lubridate", "knitr", "scales", "broom", "pwr", "pacman")
+
+pkgs %>% 
+  map(packageVersion) %>% 
+  map_chr(as.character) %>% 
+  tibble(`Package Name` = pkgs, Version = .) %>% 
+  knitr::kable(format = "markdown")
+```

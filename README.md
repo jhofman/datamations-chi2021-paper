@@ -20,3 +20,10 @@ The following packages are required:
 | broom        | 0.7.3   |
 | pwr          | 1.3.0   |
 | pacman       | 0.5.1   |
+
+The script uses `pacman` to manage installation of the required packages at these minimum version numbers. The `pacman::p_install_version` command should ensure that you have _at least_ these minimum version numbers, but will allow for newer package versions as well. If you run into difficulty when rendering the Rmarkdown file, it may help to manually run the following:
+
+    install.packages("pacman")
+    pacman::p_install_version(
+      c("tidyverse", "lubridate", "knitr", "scales", "broom", "pwr"),
+      c("1.3.0", "1.7.9.2", "1.30", "1.1.1", "0.7.3", "1.3.0"))

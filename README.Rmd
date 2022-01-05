@@ -6,6 +6,15 @@ output: github_document
 
 # Datamations at CHI 2021
 
+This is the Github repository for "Datamations: Animated Explanations of Data Analysis Pipelines", by  
+Xiaoying Pu, Sean Kross, Jake M. Hofman, and Daniel G. Goldstein, published at CHI '21: Proceedings of the 2021 CHI Conference on Human Factors in Computing Systems.
+
+It includes everything needed to reproduce the figures and results in the paper.
+
+The paper is available online ([publisher link](https://doi.org/10.1145/3411764.3445063), [pdf](http://jakehofman.com/pdfs/datamations.pdf)) and supplementary material is available [here](https://osf.io/85njc/).
+
+If you would like to use Datamations yourself, please see this Github repository for the latest code: https://github.com/microsoft/datamations
+
 ## How to run `datamations_chi2021.Rmd`
 
 1. Make sure that `datamations_chi2021.Rmd` is in the current working directory. 
